@@ -1,0 +1,58 @@
+<resources>
+    <string name="app_name">MsgVault</string>
+    <string name="app_tagline">Preserve message notifications locally</string>
+    
+    <!-- Navigation -->
+    <string name="nav_dashboard">Dashboard</string>
+    <string name="nav_messages">Messages</string>
+    <string name="nav_favorites">Favorites</string>
+    <string name="nav_apps">Apps</string>
+    <string name="nav_settings">Settings</string>
+    
+    <!-- Status -->
+    <string name="status_access_granted">Notification Access Active</string>
+    <string name="status_access_needed">Notification Access Required</string>
+    <string name="status_monitoring_active">Active &amp; Monitoring</string>
+    <string name="status_monitoring_paused">Monitoring Paused</string>
+    
+    <!-- Dashboard -->
+    <string name="total_saved_messages">Total Saved</string>
+    <string name="captured_today">Captured Today</string>
+    <string name="monitored_apps_count">Monitored Apps</string>
+    <string name="recent_messages">Recent Messages</string>
+    <string name="view_all">View All</string>
+    <string name="no_messages_yet">No messages captured yet</string>
+    <string name="no_messages_hint">Send a message or wait for notifications from enabled apps</string>
+    
+    <!-- Actions -->
+    <string name="grant_permission">Grant Notification Access</string>
+    <string name="troubleshoot">Troubleshoot</string>
+    <string name="send_test_notification">Send Test Notification</string>
+    <string name="copy_text">Copy Text</string>
+    <string name="share_text">Share Message</string>
+    <string name="delete_message">Delete</string>
+    <string name="delete_all">Clear History</string>
+    <string name="delete_selected">Delete Selected</string>
+    
+    <!-- Search & Filter -->
+    <string name="search_placeholder">Search messages, senders, apps…</string>
+    <string name="filter_all">All Apps</string>
+    <string name="filter_today">Today</string>
+    <string name="filter_yesterday">Yesterday</string>
+    <string name="filter_week">Last 7 Days</string>
+    <string name="filter_favorites">Favorites</string>
+    <string name="sort_newest">Newest First</string>
+    <string name="sort_oldest">Oldest First</string>
+    
+    <!-- Settings -->
+    <string name="retention_policy">Message Retention</string>
+    <string name="retention_forever">Keep Forever</string>
+    <string name="retention_7_days">7 Days</string>
+    <string name="retention_30_days">30 Days</string>
+    <string name="retention_90_days">90 Days</string>
+    
+    <string name="app_lock">Security &amp; App Lock</string>
+    <string name="app_lock_desc">Protect your saved messages with a PIN or biometrics</string>
+    <string name="privacy_guarantee">100% Offline &amp; On-Device</string>
+    <string name="privacy_desc">Messages never leave your device. Zero cloud sync, zero telemetry, zero analytics.</string>
+</resources>

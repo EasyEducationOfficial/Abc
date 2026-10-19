@@ -1,0 +1,6 @@
+{
+  "name": "MsgVault",
+  "description": "Local notification-based deleted message saver for social media and messaging apps.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
