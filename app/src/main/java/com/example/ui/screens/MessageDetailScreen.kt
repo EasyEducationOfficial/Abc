@@ -301,6 +301,11 @@ fun MessageDetailScreen(
                         )
 
                         DetailItem(label = "Package Name", value = msg.sourcePackage)
+                        DetailItem(label = "Message Type", value = msg.messageType)
+                        DetailItem(
+                            label = "Capture Status",
+                            value = if (msg.isPartialCapture) "Partial Capture (Notification preview / metadata)" else "Complete Capture"
+                        )
                         DetailItem(label = "Received At", value = formatFullDateTime(msg.receivedAt))
                         DetailItem(label = "Captured Locally", value = formatFullDateTime(msg.capturedAt))
                         if (!msg.conversationTitle.isNullOrBlank()) {

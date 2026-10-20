@@ -18,6 +18,9 @@ import com.example.data.model.SupportedApp
 import com.example.data.model.SupportedAppRegistry
 import com.example.data.preferences.RetentionPolicy
 import com.example.service.NotificationCaptureService
+import com.example.service.DiagnosticTracker
+import com.example.service.PackageDiagnosticStatus
+import com.example.service.DiagnosticLogEntry
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -170,6 +173,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val isServiceConnected: StateFlow<Boolean> = NotificationCaptureService.isServiceConnected
     val lastCapturedTime: StateFlow<Long> = NotificationCaptureService.lastCapturedTime
     val totalCapturedInSession: StateFlow<Int> = NotificationCaptureService.totalCapturedInSession
+
+    // Per-package capture pipeline diagnostics
+    val packageDiagnostics: StateFlow<List<PackageDiagnosticStatus>> = DiagnosticTracker.packageDiagnostics
+    val recentDiagnosticLogs: StateFlow<List<DiagnosticLogEntry>> = DiagnosticTracker.recentLogs
+
+    fun clearDiagnostics() {
+        DiagnosticTracker.clearDiagnostics()
+    }
 
     fun checkNotificationAccess(): Boolean {
         return NotificationCaptureService.isNotificationAccessGranted(getApplication())

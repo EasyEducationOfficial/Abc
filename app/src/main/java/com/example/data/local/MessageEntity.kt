@@ -11,7 +11,8 @@ import androidx.room.PrimaryKey
         Index(value = ["receivedAt"]),
         Index(value = ["isFavorite"]),
         Index(value = ["notificationKey"]),
-        Index(value = ["senderName"])
+        Index(value = ["senderName"]),
+        Index(value = ["messageType"])
     ]
 )
 data class MessageEntity(
@@ -33,5 +34,7 @@ data class MessageEntity(
     val attachmentDescription: String? = null,
     val contentAvailable: Boolean = true,
     val isDeletedBySender: Boolean = false,
-    val deletedNoticeTimestamp: Long? = null
+    val deletedNoticeTimestamp: Long? = null,
+    val messageType: String = "TEXT",
+    val isPartialCapture: Boolean = false
 )

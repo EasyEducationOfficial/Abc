@@ -371,7 +371,10 @@ private fun Step4ChooseApps(
             verticalArrangement = Arrangement.spacedBy(8.dp),
             modifier = Modifier.weight(1f)
         ) {
-            items(SupportedAppRegistry.ALL_SUPPORTED_APPS.take(8), key = { it.packageName }) { app ->
+            items(
+                SupportedAppRegistry.ALL_SUPPORTED_APPS.filter { !it.packageName.startsWith("com.example") && !it.packageName.startsWith("com.aistudio") },
+                key = { it.packageName }
+            ) { app ->
                 val isMonitored = monitoredPackages.contains(app.packageName)
                 Card(
                     modifier = Modifier.fillMaxWidth(),

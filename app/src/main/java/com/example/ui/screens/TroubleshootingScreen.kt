@@ -22,6 +22,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.service.PackageDiagnosticStatus
+import com.example.service.DiagnosticLogEntry
 import com.example.ui.components.formatFullDateTime
 import com.example.ui.theme.EmeraldSuccess
 import com.example.ui.theme.IndigoLight
@@ -38,10 +40,13 @@ fun TroubleshootingScreen(
     val isConnected by viewModel.isServiceConnected.collectAsStateWithLifecycle()
     val lastCaptured by viewModel.lastCapturedTime.collectAsStateWithLifecycle()
     val sessionCount by viewModel.totalCapturedInSession.collectAsStateWithLifecycle()
+    val packageDiagnostics by viewModel.packageDiagnostics.collectAsStateWithLifecycle()
+    val recentLogs by viewModel.recentDiagnosticLogs.collectAsStateWithLifecycle()
     var isAccessGranted by remember { mutableStateOf(viewModel.checkNotificationAccess()) }
 
     var testMessageInput by remember { mutableStateOf("Testing MsgVault capture: will this unsent message stay?") }
     var testNotificationSent by remember { mutableStateOf(false) }
+    var diagnosticSearchQuery by remember { mutableStateOf("") }
 
     DisposableEffect(Unit) {
         isAccessGranted = viewModel.checkNotificationAccess()
@@ -242,6 +247,73 @@ fun TroubleshootingScreen(
                 }
             }
 
+            // Per-Package Capture Diagnostics Section
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(20.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                    ),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.3f))
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "PER-PACKAGE CAPTURE DIAGNOSTICS",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    text = "Inspect the 4-stage pipeline: Event Received → Filter Accepted → Message Extracted → Database Insertion. (Private message text is never exposed in logs).",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            IconButton(
+                                onClick = { viewModel.clearDiagnostics() },
+                                modifier = Modifier.testTag("reset_diagnostics_button")
+                            ) {
+                                Icon(Icons.Default.Refresh, contentDescription = "Reset Diagnostics")
+                            }
+                        }
+
+                        OutlinedTextField(
+                            value = diagnosticSearchQuery,
+                            onValueChange = { diagnosticSearchQuery = it },
+                            placeholder = { Text("Filter package diagnostics…", fontSize = 12.sp) },
+                            leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(16.dp)) },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp)
+                        )
+                    }
+                }
+            }
+
+            // Per-Package Diagnostic Cards
+            val filteredDiagnostics = packageDiagnostics.filter {
+                if (diagnosticSearchQuery.isBlank()) true
+                else it.appDisplayName.contains(diagnosticSearchQuery, ignoreCase = true) ||
+                        it.packageName.contains(diagnosticSearchQuery, ignoreCase = true)
+            }
+
+            items(filteredDiagnostics.size) { index ->
+                val diag = filteredDiagnostics[index]
+                PackageDiagnosticCard(diag = diag)
+            }
+
             // OEM Battery Optimization & Troubleshooting
             item {
                 Card(
@@ -337,5 +409,144 @@ private fun GuidanceItem(device: String, instruction: String) {
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             lineHeight = 18.sp
         )
+    }
+}
+
+@Composable
+private fun PackageDiagnosticCard(diag: PackageDiagnosticStatus) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("diagnostic_card_${diag.packageName}"),
+        shape = RoundedCornerShape(14.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
+        ),
+        border = androidx.compose.foundation.BorderStroke(
+            1.dp,
+            if (diag.notificationReceived) MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)
+            else MaterialTheme.colorScheme.outline.copy(alpha = 0.15f)
+        )
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = diag.appDisplayName,
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = diag.packageName,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
+                if (diag.totalMessagesSaved > 0) {
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = EmeraldSuccess.copy(alpha = 0.15f)
+                    ) {
+                        Text(
+                            text = "${diag.totalMessagesSaved} SAVED",
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = EmeraldSuccess,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                        )
+                    }
+                }
+            }
+
+            // 4-stage pipeline checklist:
+            // 1. Notification Event Received
+            // 2. Package Accepted by Filter
+            // 3. Message Text Extracted
+            // 4. Database Insertion Succeeded
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                PipelineStageBadge(
+                    stage = "Received",
+                    success = diag.notificationReceived,
+                    modifier = Modifier.weight(1f)
+                )
+                PipelineStageBadge(
+                    stage = "Accepted",
+                    success = diag.packageAccepted,
+                    modifier = Modifier.weight(1f)
+                )
+                PipelineStageBadge(
+                    stage = "Extracted",
+                    success = diag.messageExtracted,
+                    modifier = Modifier.weight(1f)
+                )
+                PipelineStageBadge(
+                    stage = "Inserted",
+                    success = diag.databaseInserted,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+
+            // Diagnostic status reason
+            Surface(
+                shape = RoundedCornerShape(8.dp),
+                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.8f),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(8.dp)) {
+                    Text(
+                        text = "Status / Reason:",
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Text(
+                        text = diag.statusReason,
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        lineHeight = 15.sp
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PipelineStageBadge(stage: String, success: Boolean, modifier: Modifier = Modifier) {
+    Surface(
+        modifier = modifier,
+        shape = RoundedCornerShape(8.dp),
+        color = if (success) EmeraldSuccess.copy(alpha = 0.15f) else MaterialTheme.colorScheme.surfaceVariant
+    ) {
+        Column(
+            modifier = Modifier.padding(vertical = 4.dp, horizontal = 2.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(
+                text = stage,
+                fontSize = 9.sp,
+                fontWeight = FontWeight.Medium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Text(
+                text = if (success) "YES" else "NO",
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Bold,
+                color = if (success) EmeraldSuccess else MaterialTheme.colorScheme.outline
+            )
+        }
     }
 }

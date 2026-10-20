@@ -92,47 +92,103 @@ class NotificationCaptureService : NotificationListenerService() {
 
         val pkg = sbn.packageName ?: return
         serviceScope.launch {
+            val displayName = SupportedAppRegistry.getDisplayName(
+                packageName = pkg,
+                context = applicationContext,
+                fallback = try {
+                    val ai = packageManager.getApplicationInfo(pkg, 0)
+                    packageManager.getApplicationLabel(ai).toString()
+                } catch (e: Exception) {
+                    pkg
+                }
+            )
+
+            // Step 1: Record that a notification event was received from Android OS
+            DiagnosticTracker.recordEventReceived(pkg, displayName)
+
             try {
                 val prefs = AppPreferences(applicationContext)
                 val monitored = prefs.monitoredPackages.first()
                 val isGenericEnabled = prefs.isGenericAppsMonitoringEnabled.first()
                 val isAllEnabled = prefs.isAllNotificationsMonitoringEnabled.first()
 
-                val isExplicitlyMonitored = monitored.contains(pkg)
-                val isSystemPackage = pkg == "android" || pkg == "com.android.systemui" || pkg.startsWith("com.google.android.googlequicksearchbox")
-                
-                val notification = sbn.notification
-                val isMessagingCategory = notification != null && (
-                    notification.category == android.app.Notification.CATEGORY_MESSAGE ||
-                    notification.category == android.app.Notification.CATEGORY_SOCIAL ||
-                    androidx.core.app.NotificationCompat.MessagingStyle.extractMessagingStyleFromNotification(notification) != null
-                )
+                val isSystemPackage = pkg == "android" ||
+                        pkg == "com.android.systemui" ||
+                        pkg.startsWith("com.google.android.googlequicksearchbox")
 
-                val shouldProcess = when {
-                    isExplicitlyMonitored -> true
-                    isAllEnabled && !isSystemPackage -> true
-                    isGenericEnabled && isMessagingCategory && !isSystemPackage -> true
-                    else -> false
+                val notification = sbn.notification
+                val extras = notification?.extras
+                val isExplicitlyMonitored = monitored.contains(pkg)
+
+                // Generic messaging detection: check category, template, messages bundle, or conversation fields
+                val hasMessagingCategory = notification != null && (
+                    notification.category == android.app.Notification.CATEGORY_MESSAGE ||
+                    notification.category == android.app.Notification.CATEGORY_SOCIAL
+                )
+                val hasMessagingExtras = extras != null && (
+                    extras.containsKey(android.app.Notification.EXTRA_MESSAGES) ||
+                    extras.containsKey("android.messages") ||
+                    extras.containsKey(android.app.Notification.EXTRA_CONVERSATION_TITLE) ||
+                    extras.containsKey("android.messagingStyleUser") ||
+                    extras.getString(android.app.Notification.EXTRA_TEMPLATE)?.contains("MessagingStyle") == true ||
+                    extras.containsKey(android.app.Notification.EXTRA_TEXT_LINES)
+                )
+                val isKnownMessagingApp = SupportedAppRegistry.ALL_SUPPORTED_APPS.any { it.packageName == pkg }
+
+                val shouldProcess: Boolean
+                val filterReason: String
+                when {
+                    isSystemPackage -> {
+                        shouldProcess = false
+                        filterReason = "System package filtered"
+                    }
+                    isAllEnabled -> {
+                        shouldProcess = true
+                        filterReason = "Capture all notifications enabled"
+                    }
+                    isExplicitlyMonitored || isKnownMessagingApp -> {
+                        shouldProcess = true
+                        filterReason = if (isExplicitlyMonitored) "Monitored package accepted" else "Supported messaging platform accepted"
+                    }
+                    isGenericEnabled && (hasMessagingCategory || hasMessagingExtras) -> {
+                        shouldProcess = true
+                        filterReason = "Generic messaging engine matched"
+                    }
+                    else -> {
+                        shouldProcess = false
+                        filterReason = "Package unmonitored: not in monitored list"
+                    }
                 }
 
                 if (!shouldProcess) {
+                    DiagnosticTracker.recordFilterRejected(pkg, displayName, filterReason)
                     return@launch
                 }
 
-                val displayName = SupportedAppRegistry.getDisplayName(
-                    packageName = pkg,
-                    context = applicationContext,
-                    fallback = try {
-                        val ai = packageManager.getApplicationInfo(pkg, 0)
-                        packageManager.getApplicationLabel(ai).toString()
-                    } catch (e: Exception) {
-                        pkg
-                    }
+                // Step 2: Record that package was accepted by filter
+                DiagnosticTracker.recordFilterAccepted(pkg, displayName)
+
+                // Step 3: Message extraction via NotificationParser
+                val parseResult = NotificationParser.parseWithDiagnostics(sbn, displayName)
+                val parsedMessages = parseResult.messages
+
+                if (parsedMessages.isEmpty()) {
+                    DiagnosticTracker.recordExtractionFailed(
+                        pkg,
+                        displayName,
+                        parseResult.failureReason ?: "No message text or content extracted"
+                    )
+                    return@launch
+                }
+
+                DiagnosticTracker.recordExtractionSuccess(
+                    pkg,
+                    displayName,
+                    parsedMessages.size,
+                    parseResult.extractionMethod
                 )
 
-                val parsedMessages = NotificationParser.parse(sbn, displayName)
-                if (parsedMessages.isEmpty()) return@launch
-
+                // Step 4: Deduplication and Database insertion
                 val db = AppDatabase.getInstance(applicationContext)
                 val dao = db.messageDao()
                 val now = System.currentTimeMillis()
@@ -148,6 +204,11 @@ class NotificationCaptureService : NotificationListenerService() {
                             // Mark original message as deleted by sender, preserving the original captured text!
                             dao.markDeletedBySender(targetMsg.id, now)
                             _lastCapturedTime.value = now
+                            DiagnosticTracker.recordInsertionSkipped(
+                                pkg,
+                                displayName,
+                                "Marked previous message as deleted by sender (original text preserved)"
+                            )
                         } else {
                             // If MsgVault was not running when the original arrived, save an audit record
                             dao.insertMessage(
@@ -160,6 +221,7 @@ class NotificationCaptureService : NotificationListenerService() {
                             )
                             _lastCapturedTime.value = now
                             _totalCapturedInSession.value += 1
+                            DiagnosticTracker.recordInsertionSuccess(pkg, displayName, 1)
                         }
                         continue
                     }
@@ -173,24 +235,51 @@ class NotificationCaptureService : NotificationListenerService() {
                         receivedAt = msg.receivedAt
                     )
 
-                    if (exactDuplicate == null) {
-                        // 2. Check 300ms jitter window for identical text from the same sender
-                        val jitterDuplicate = dao.findRecentDuplicate(
-                            sourcePackage = msg.sourcePackage,
-                            senderName = msg.senderName,
-                            messageText = msg.messageText,
-                            minTimestamp = now - 300L
+                    if (exactDuplicate != null) {
+                        DiagnosticTracker.recordInsertionSkipped(
+                            pkg,
+                            displayName,
+                            "Duplicate notification event ignored (already saved)"
                         )
+                        continue
+                    }
 
-                        if (jitterDuplicate == null) {
-                            dao.insertMessage(msg)
-                            _lastCapturedTime.value = now
-                            _totalCapturedInSession.value += 1
-                        }
+                    // 2. Check 300ms jitter window for identical text from the same sender
+                    val jitterDuplicate = dao.findRecentDuplicate(
+                        sourcePackage = msg.sourcePackage,
+                        senderName = msg.senderName,
+                        messageText = msg.messageText,
+                        minTimestamp = now - 300L
+                    )
+
+                    if (jitterDuplicate != null) {
+                        DiagnosticTracker.recordInsertionSkipped(
+                            pkg,
+                            displayName,
+                            "Jitter duplicate ignored (received within 300ms)"
+                        )
+                        continue
+                    }
+
+                    val newId = dao.insertMessage(msg)
+                    if (newId > 0) {
+                        _lastCapturedTime.value = now
+                        _totalCapturedInSession.value += 1
+                        DiagnosticTracker.recordInsertionSuccess(pkg, displayName, 1)
+                    } else {
+                        DiagnosticTracker.recordInsertionFailed(
+                            pkg,
+                            displayName,
+                            "Database insertion returned non-positive row ID"
+                        )
                     }
                 }
             } catch (e: Exception) {
-                // Safeguard background notification parsing without crashing
+                DiagnosticTracker.recordInsertionFailed(
+                    pkg,
+                    displayName,
+                    "Error in capture service: ${e.javaClass.simpleName}"
+                )
             }
         }
     }

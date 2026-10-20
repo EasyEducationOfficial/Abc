@@ -251,6 +251,78 @@ fun MessageCard(
                 }
             }
 
+            // Message Type & Partial Capture Badges
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 6.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                if (message.messageType != "TEXT") {
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            val typeIcon = when (message.messageType) {
+                                "IMAGE" -> Icons.Default.Image
+                                "VIDEO" -> Icons.Default.Videocam
+                                "AUDIO" -> Icons.Default.Mic
+                                "DOCUMENT" -> Icons.Default.Description
+                                "STICKER" -> Icons.Default.EmojiEmotions
+                                "LOCATION" -> Icons.Default.Place
+                                else -> Icons.Default.Attachment
+                            }
+                            Icon(
+                                imageVector = typeIcon,
+                                contentDescription = null,
+                                modifier = Modifier.size(11.dp),
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                            Spacer(modifier = Modifier.width(3.dp))
+                            Text(
+                                text = message.messageType,
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    }
+                }
+
+                if (message.isPartialCapture) {
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.6f)
+                    ) {
+                        Text(
+                            text = "PARTIAL CAPTURE",
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onTertiaryContainer,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                        )
+                    }
+                } else {
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = EmeraldSuccess.copy(alpha = 0.12f)
+                    ) {
+                        Text(
+                            text = "COMPLETE",
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = EmeraldSuccess,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                        )
+                    }
+                }
+            }
+
             // Attachment badge if present
             if (!message.attachmentDescription.isNullOrBlank()) {
                 Surface(
