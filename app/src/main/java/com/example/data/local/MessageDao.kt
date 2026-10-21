@@ -52,6 +52,9 @@ interface MessageDao {
     @Query("UPDATE messages SET isRead = :isRead WHERE id = :id")
     suspend fun updateRead(id: Long, isRead: Boolean)
 
+    @Query("UPDATE messages SET mediaFilePath = :mediaPath, mediaMimeType = :mimeType, mediaFileSize = :fileSize WHERE id = :id")
+    suspend fun updateMediaAttachment(id: Long, mediaPath: String, mimeType: String, fileSize: Long)
+
     @Query("DELETE FROM messages WHERE id = :id")
     suspend fun deleteById(id: Long)
 
@@ -82,6 +85,16 @@ interface MessageDao {
         LIMIT 1
     """)
     suspend fun findLatestMessageForSender(sourcePackage: String, senderName: String?): MessageEntity?
+
+    @Query("""
+        SELECT * FROM messages 
+        WHERE sourcePackage = :sourcePackage 
+          AND ((:senderName IS NULL AND senderName IS NULL) OR senderName = :senderName)
+          AND receivedAt >= :minTimestamp
+        ORDER BY receivedAt DESC 
+        LIMIT 1
+    """)
+    suspend fun findRecentMessageForSender(sourcePackage: String, senderName: String?, minTimestamp: Long): MessageEntity?
 
     @Query("""
         SELECT * FROM messages 

@@ -31,7 +31,6 @@ object NotificationParser {
         // Filter out non-message ongoing background services (e.g. music players, background sync)
         val isOngoing = (notification.flags and Notification.FLAG_ONGOING_EVENT) != 0
         if (isOngoing) {
-            // Check if it's an ignorable background status
             val extras = notification.extras
             val title = extras?.getCharSequence(Notification.EXTRA_TITLE)?.toString()?.trim() ?: ""
             val text = extras?.getCharSequence(Notification.EXTRA_TEXT)?.toString()?.trim() ?: ""
@@ -88,7 +87,6 @@ object NotificationParser {
                 val lineStr = line.toString().trim()
                 if (lineStr.isBlank() || isIgnorableSystemText(lineStr)) continue
 
-                // Lines often format as "Sender: Message content"
                 val sender: String?
                 val msgContent: String
                 if (lineStr.contains(": ")) {
@@ -129,8 +127,7 @@ object NotificationParser {
             }
         }
 
-        // 3. If this is a pure group summary notification with only aggregate count ("3 new messages"),
-        // skip inserting an empty placeholder so individual conversation notifications are captured instead.
+        // 3. Skip pure container summary notification if it only has placeholder count
         val effectiveText = when {
             !bigText.isNullOrBlank() -> bigText
             !text.isNullOrBlank() -> text
@@ -147,7 +144,6 @@ object NotificationParser {
 
         // 4. Standard Single / BigText notification
         if (effectiveText.isNullOrBlank()) {
-            // Check for media attachments without text
             val hasPicture = extras.containsKey(Notification.EXTRA_PICTURE) ||
                     extras.containsKey(Notification.EXTRA_PICTURE_ICON) ||
                     extras.containsKey("android.picture")
@@ -192,7 +188,7 @@ object NotificationParser {
             )
         }
 
-        // Check if text is formatted as "Sender: Message" (common in Telegram, Discord, Messenger)
+        // Parse formatted "Sender: Message" (common in Telegram, Discord, Messenger)
         var parsedSender = title
         var parsedContent = effectiveText
         if (!title.isNullOrBlank() && (title == appDisplayName || title.contains("Group", ignoreCase = true) || title.startsWith("#"))) {
@@ -261,7 +257,6 @@ object NotificationParser {
         val messagesList = mutableListOf<MessageEntity>()
 
         // Strategy A: Android Framework EXTRA_MESSAGES ("android.messages")
-        // Handles Parcelable[] and ArrayList<Parcelable> (used by WhatsApp, Telegram, Messenger, Signal, Discord)
         val rawMessages = extras.get(Notification.EXTRA_MESSAGES)
         val messageBundles: List<Bundle> = when (rawMessages) {
             is Array<*> -> rawMessages.filterIsInstance<Bundle>()
@@ -277,7 +272,6 @@ object NotificationParser {
                 val msgText = bundle.getCharSequence("text")?.toString()?.trim() ?: continue
                 if (msgText.isBlank() || isIgnorableSystemText(msgText)) continue
 
-                // Extract sender: Check CharSequence "sender", then "sender_person" Person object (Android 9+)
                 var sender: String? = bundle.getCharSequence("sender")?.toString()?.trim()
                 if (sender.isNullOrBlank()) {
                     sender = extractSenderPersonName(bundle)
@@ -363,9 +357,7 @@ object NotificationParser {
                     return messagesList
                 }
             }
-        } catch (ignored: Exception) {
-            // AndroidX extractMessagingStyleFromNotification can throw ClassCastException on some platform extras
-        }
+        } catch (ignored: Exception) {}
 
         return emptyList()
     }
@@ -422,7 +414,6 @@ object NotificationParser {
         if (text.isNullOrBlank()) return false
         val lower = text.lowercase().trim()
 
-        // Exact match or strict phrase containment for deletion / unsend alerts
         return lower == "this message was deleted" ||
                 lower == "this message was deleted by the sender" ||
                 lower == "you deleted this message" ||

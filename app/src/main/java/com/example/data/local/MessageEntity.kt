@@ -12,7 +12,8 @@ import androidx.room.PrimaryKey
         Index(value = ["isFavorite"]),
         Index(value = ["notificationKey"]),
         Index(value = ["senderName"]),
-        Index(value = ["messageType"])
+        Index(value = ["messageType"]),
+        Index(value = ["mediaFilePath"])
     ]
 )
 data class MessageEntity(
@@ -36,5 +37,8 @@ data class MessageEntity(
     val isDeletedBySender: Boolean = false,
     val deletedNoticeTimestamp: Long? = null,
     val messageType: String = "TEXT",
-    val isPartialCapture: Boolean = false
+    val isPartialCapture: Boolean = false,
+    val mediaFilePath: String? = null,
+    val mediaMimeType: String? = null,
+    val mediaFileSize: Long = 0L
 )

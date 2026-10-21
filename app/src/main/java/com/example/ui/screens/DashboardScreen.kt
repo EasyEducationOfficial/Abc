@@ -1,9 +1,14 @@
 package com.example.ui.screens
 
-import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -13,22 +18,17 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.example.R
+import com.example.data.local.MessageEntity
+import com.example.data.model.SupportedAppRegistry
 import com.example.ui.components.EmptyState
 import com.example.ui.components.MessageCard
-import com.example.ui.components.StatTile
-import com.example.ui.components.StatusCard
-import com.example.ui.theme.ElectricCyan
 import com.example.ui.theme.EmeraldSuccess
-import com.example.ui.theme.IndigoLight
+import com.example.ui.theme.RubyError
 import com.example.ui.viewmodel.MainViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -36,26 +36,28 @@ import com.example.ui.viewmodel.MainViewModel
 fun DashboardScreen(
     viewModel: MainViewModel,
     onNavigateToMessages: () -> Unit,
-    onNavigateToMessageDetail: (Long) -> Unit,
-    onNavigateToSearch: () -> Unit,
+    onNavigateToMediaVault: () -> Unit,
+    onNavigateToDiagnostics: () -> Unit,
     onNavigateToApps: () -> Unit,
-    onNavigateToTroubleshooting: () -> Unit,
-    onNavigateToDatabaseInspector: () -> Unit,
-    modifier: Modifier = Modifier
+    onNavigateToPermissions: () -> Unit,
+    onNavigateToDetail: (Long) -> Unit
 ) {
-    val context = LocalContext.current
-    val totalCount by viewModel.totalSavedCount.collectAsStateWithLifecycle()
-    val todayCount by viewModel.capturedTodayCount.collectAsStateWithLifecycle()
-    val monitoredApps by viewModel.monitoredPackages.collectAsStateWithLifecycle()
-    val recentMessages by viewModel.recentMessages.collectAsStateWithLifecycle()
-    val isServiceConnected by viewModel.isServiceConnected.collectAsStateWithLifecycle()
+    val isServiceConnected by viewModel.isServiceConnected.collectAsState()
+    val isMediaObserverActive by viewModel.isMediaObserverActive.collectAsState()
+    val totalCount by viewModel.totalCount.collectAsState()
+    val totalMediaCount by viewModel.totalMediaCount.collectAsState()
+    val recentMessages by viewModel.recentMessages.collectAsState()
 
-    var isAccessGranted by remember { mutableStateOf(viewModel.checkNotificationAccess()) }
+    val isPlayingAudio by viewModel.isPlayingAudio.collectAsState()
+    val currentAudioPath by viewModel.currentPlayingPath.collectAsState()
+    val audioProgress by viewModel.audioProgressMs.collectAsState()
+    val audioDuration by viewModel.audioDurationMs.collectAsState()
 
-    // Re-check permission whenever dashboard appears
-    DisposableEffect(Unit) {
-        isAccessGranted = viewModel.checkNotificationAccess()
-        onDispose { }
+    var selectedAppPackage by remember { mutableStateOf<String?>(null) }
+
+    val filteredMessages = remember(recentMessages, selectedAppPackage) {
+        if (selectedAppPackage == null) recentMessages
+        else recentMessages.filter { it.sourcePackage == selectedAppPackage }
     }
 
     Scaffold(
@@ -64,29 +66,29 @@ fun DashboardScreen(
                 title = {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Surface(
-                            shape = RoundedCornerShape(10.dp),
-                            color = MaterialTheme.colorScheme.primaryContainer,
-                            modifier = Modifier.size(36.dp)
+                            shape = CircleShape,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(32.dp)
                         ) {
                             Box(contentAlignment = Alignment.Center) {
                                 Icon(
-                                    imageVector = Icons.Default.Lock,
+                                    imageVector = Icons.Default.Shield,
                                     contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(20.dp)
+                                    tint = Color.White,
+                                    modifier = Modifier.size(18.dp)
                                 )
                             }
                         }
-                        Spacer(modifier = Modifier.width(12.dp))
+                        Spacer(modifier = Modifier.width(10.dp))
                         Column {
                             Text(
                                 text = "MsgVault",
-                                style = MaterialTheme.typography.titleLarge,
-                                fontWeight = FontWeight.Bold
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 18.sp
                             )
                             Text(
-                                text = "Local Message Preserver",
-                                style = MaterialTheme.typography.labelSmall,
+                                text = "Private deleted message & media preserver",
+                                fontSize = 11.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
@@ -94,168 +96,211 @@ fun DashboardScreen(
                 },
                 actions = {
                     IconButton(
-                        onClick = onNavigateToSearch,
-                        modifier = Modifier.testTag("dashboard_search_button")
+                        onClick = onNavigateToDiagnostics,
+                        modifier = Modifier.testTag("dashboard_diagnostics_button")
                     ) {
                         Icon(
-                            imageVector = Icons.Default.Search,
-                            contentDescription = "Search Messages"
+                            imageVector = Icons.Default.BugReport,
+                            contentDescription = "Diagnostics",
+                            tint = MaterialTheme.colorScheme.primary
                         )
                     }
                     IconButton(
-                        onClick = onNavigateToTroubleshooting,
-                        modifier = Modifier.testTag("dashboard_troubleshoot_button")
+                        onClick = onNavigateToPermissions,
+                        modifier = Modifier.testTag("dashboard_settings_button")
                     ) {
                         Icon(
-                            imageVector = Icons.Outlined.Info,
-                            contentDescription = "Diagnostics & Troubleshooting"
+                            imageVector = Icons.Default.Settings,
+                            contentDescription = "Settings & Permissions"
                         )
                     }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background
-                )
+                }
             )
-        },
-        modifier = modifier
+        }
     ) { innerPadding ->
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(innerPadding)
-                .padding(horizontal = 16.dp),
+                .padding(innerPadding),
+            contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            // Hero banner image
-            item {
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(140.dp)
-                        .testTag("dashboard_hero_card"),
-                    shape = RoundedCornerShape(20.dp)
-                ) {
-                    Box(modifier = Modifier.fillMaxSize()) {
-                        Image(
-                            painter = painterResource(id = R.drawable.img_vault_hero),
-                            contentDescription = "MsgVault Hero Banner",
-                            modifier = Modifier.fillMaxSize(),
-                            contentScale = ContentScale.Crop
-                        )
-                        // Gradient overlay for readability
-                        Surface(
-                            modifier = Modifier.fillMaxSize(),
-                            color = MaterialTheme.colorScheme.scrim.copy(alpha = 0.45f)
-                        ) {}
-                        Column(
-                            modifier = Modifier
-                                .align(Alignment.BottomStart)
-                                .padding(16.dp)
-                        ) {
-                            Text(
-                                text = "Deleted Message Protection",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = androidx.compose.ui.graphics.Color.White
-                            )
-                            Text(
-                                text = "Saved copies are preserved even if unsent or deleted",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.85f)
-                            )
-                        }
-                    }
-                }
-            }
-
-            // Permission Status Card
-            item {
-                StatusCard(
-                    isAccessGranted = isAccessGranted,
-                    isServiceConnected = isServiceConnected,
-                    onGrantAccessClick = {
-                        viewModel.openNotificationAccessSettings(context)
-                    }
-                )
-            }
-
-            // Metric Stat Tiles
-            item {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    StatTile(
-                        title = "Saved Messages",
-                        value = totalCount.toString(),
-                        icon = Icons.Default.AllInbox,
-                        iconTint = IndigoLight,
-                        modifier = Modifier.weight(1f)
-                    )
-                    StatTile(
-                        title = "Captured Today",
-                        value = todayCount.toString(),
-                        icon = Icons.Default.Today,
-                        iconTint = ElectricCyan,
-                        modifier = Modifier.weight(1f)
-                    )
-                    StatTile(
-                        title = "Monitored Apps",
-                        value = monitoredApps.size.toString(),
-                        icon = Icons.Default.Apps,
-                        iconTint = EmeraldSuccess,
-                        modifier = Modifier.weight(1f)
-                    )
-                }
-            }
-
-            // Quick Actions Bar
+            // Service Status Card
             item {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(16.dp),
                     colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+                        containerColor = if (isServiceConnected) {
+                            EmeraldSuccess.copy(alpha = 0.12f)
+                        } else {
+                            RubyError.copy(alpha = 0.12f)
+                        }
+                    ),
+                    border = androidx.compose.foundation.BorderStroke(
+                        1.dp,
+                        if (isServiceConnected) EmeraldSuccess.copy(alpha = 0.3f) else RubyError.copy(alpha = 0.3f)
                     )
                 ) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(12.dp),
-                        horizontalArrangement = Arrangement.SpaceEvenly,
-                        verticalAlignment = Alignment.CenterVertically
+                            .padding(14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        TextButton(
-                            onClick = { viewModel.sendTestNotification(context) },
-                            modifier = Modifier.testTag("send_test_notification_btn")
-                        ) {
-                            Icon(Icons.Default.NotificationsActive, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Test Capture", fontSize = 13.sp)
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Surface(
+                                shape = CircleShape,
+                                color = if (isServiceConnected) EmeraldSuccess else RubyError,
+                                modifier = Modifier.size(12.dp)
+                            ) {}
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column {
+                                Text(
+                                    text = if (isServiceConnected) "Capture Engine Active" else "Capture Engine Not Running",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 14.sp,
+                                    color = if (isServiceConnected) EmeraldSuccess else RubyError
+                                )
+                                Text(
+                                    text = if (isServiceConnected) {
+                                        "Listening for WhatsApp, Messenger, Instagram, imo & more"
+                                    } else {
+                                        "Grant Notification Access to enable capture"
+                                    },
+                                    fontSize = 11.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
                         }
-                        VerticalDivider(modifier = Modifier.height(24.dp))
-                        TextButton(
-                            onClick = onNavigateToApps,
-                            modifier = Modifier.testTag("manage_apps_btn")
-                        ) {
-                            Icon(Icons.Default.Tune, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Filter Apps", fontSize = 13.sp)
-                        }
-                        VerticalDivider(modifier = Modifier.height(24.dp))
-                        TextButton(
-                            onClick = onNavigateToDatabaseInspector,
-                            modifier = Modifier.testTag("dashboard_db_inspector_btn")
-                        ) {
-                            Icon(Icons.Default.Storage, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Inspector", fontSize = 13.sp)
+
+                        if (!isServiceConnected) {
+                            Button(
+                                onClick = onNavigateToPermissions,
+                                shape = RoundedCornerShape(8.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = RubyError),
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                            ) {
+                                Text("Enable", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            }
                         }
                     }
                 }
             }
 
-            // Section Header: Recent Messages
+            // Quick Stats Row
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    StatCard(
+                        title = "Saved Messages",
+                        value = totalCount.toString(),
+                        icon = Icons.Default.ChatBubbleOutline,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier
+                            .weight(1f)
+                            .clickable { onNavigateToMessages() }
+                    )
+                    StatCard(
+                        title = "Media Files",
+                        value = totalMediaCount.toString(),
+                        icon = Icons.Default.PhotoLibrary,
+                        color = MaterialTheme.colorScheme.secondary,
+                        modifier = Modifier
+                            .weight(1f)
+                            .clickable { onNavigateToMediaVault() }
+                    )
+                }
+            }
+
+            // Quick Feature Actions
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    ActionChipButton(
+                        text = "Diagnostics",
+                        icon = Icons.Default.Analytics,
+                        onClick = onNavigateToDiagnostics,
+                        modifier = Modifier.weight(1f)
+                    )
+                    ActionChipButton(
+                        text = "Media Vault",
+                        icon = Icons.Default.PermMedia,
+                        onClick = onNavigateToMediaVault,
+                        modifier = Modifier.weight(1f)
+                    )
+                    ActionChipButton(
+                        text = "Supported Apps",
+                        icon = Icons.Default.Apps,
+                        onClick = onNavigateToApps,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+            }
+
+            // Platform Filter Chips
+            item {
+                Column {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Filter by Platform",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 14.sp
+                        )
+                        if (selectedAppPackage != null) {
+                            TextButton(
+                                onClick = { selectedAppPackage = null },
+                                contentPadding = PaddingValues(0.dp)
+                            ) {
+                                Text("Show All", fontSize = 12.sp)
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        item {
+                            FilterChip(
+                                selected = selectedAppPackage == null,
+                                onClick = { selectedAppPackage = null },
+                                label = { Text("All Platforms") },
+                                leadingIcon = {
+                                    Icon(
+                                        imageVector = Icons.Default.Check,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
+                            )
+                        }
+
+                        items(SupportedAppRegistry.ALL_SUPPORTED_APPS) { app ->
+                            FilterChip(
+                                selected = selectedAppPackage == app.packageName,
+                                onClick = {
+                                    selectedAppPackage = if (selectedAppPackage == app.packageName) null else app.packageName
+                                },
+                                label = { Text(app.displayName) }
+                            )
+                        }
+                    }
+                }
+            }
+
+            // Header for Recent Messages
             item {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -263,48 +308,118 @@ fun DashboardScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "Recent Messages",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold
+                        text = "Recent Captured Stream",
+                        fontWeight = FontWeight.Bold,
+                        style = MaterialTheme.typography.titleMedium
                     )
-                    if (recentMessages.isNotEmpty()) {
-                        TextButton(
-                            onClick = onNavigateToMessages,
-                            modifier = Modifier.testTag("view_all_messages_btn")
-                        ) {
-                            Text("View All (${totalCount})")
-                        }
+                    TextButton(onClick = onNavigateToMessages) {
+                        Text("View All ($totalCount)")
                     }
                 }
             }
 
-            // Recent Messages List or Empty State
-            if (recentMessages.isEmpty()) {
+            // Empty State or List
+            if (filteredMessages.isEmpty()) {
                 item {
                     EmptyState(
-                        icon = Icons.Outlined.ChatBubbleOutline,
-                        title = "No Messages Captured Yet",
-                        description = "MsgVault will automatically preserve incoming notifications from WhatsApp, Telegram, Messenger, and other supported apps.",
-                        actionLabel = "Send Test Notification",
-                        onActionClick = {
-                            viewModel.sendTestNotification(context)
-                        }
+                        icon = Icons.Default.Inbox,
+                        title = "No captured messages yet",
+                        description = "Whenever an incoming message arrives from WhatsApp, Messenger, Instagram, imo, or other platforms, it will instantly be preserved here.",
+                        actionLabel = "Run Diagnostics & Test",
+                        onActionClick = onNavigateToDiagnostics
                     )
                 }
             } else {
-                items(recentMessages, key = { it.id }) { msg ->
+                items(filteredMessages, key = { it.id }) { msg ->
                     MessageCard(
                         message = msg,
-                        onClick = { onNavigateToMessageDetail(msg.id) },
-                        onFavoriteToggle = { viewModel.toggleFavorite(msg) }
+                        onClick = { onNavigateToDetail(msg.id) },
+                        onFavoriteToggle = { viewModel.toggleFavorite(msg) },
+                        isPlayingAudio = isPlayingAudio && currentAudioPath == msg.mediaFilePath,
+                        audioProgressMs = if (currentAudioPath == msg.mediaFilePath) audioProgress else 0,
+                        audioDurationMs = if (currentAudioPath == msg.mediaFilePath) audioDuration else 0,
+                        onPlayAudio = { path -> viewModel.playAudio(path) },
+                        onPauseAudio = { viewModel.pauseAudio() },
+                        onSeekAudio = { pos -> viewModel.seekAudio(pos) }
                     )
                 }
             }
+        }
+    }
+}
 
-            // Bottom spacer for scroll comfort
-            item {
-                Spacer(modifier = Modifier.height(24.dp))
-            }
+@Composable
+fun StatCard(
+    title: String,
+    value: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    color: Color,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        modifier = modifier,
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.15f))
+    ) {
+        Column(modifier = Modifier.padding(14.dp)) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = color,
+                modifier = Modifier.size(24.dp)
+            )
+            Spacer(modifier = Modifier.height(10.dp))
+            Text(
+                text = value,
+                fontWeight = FontWeight.Bold,
+                fontSize = 22.sp,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Text(
+                text = title,
+                fontSize = 11.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+@Composable
+fun ActionChipButton(
+    text: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        modifier = modifier
+            .height(44.dp)
+            .clickable { onClick() },
+        shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f),
+        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.2f))
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(16.dp)
+            )
+            Spacer(modifier = Modifier.width(6.dp))
+            Text(
+                text = text,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onPrimaryContainer
+            )
         }
     }
 }

@@ -6,10 +6,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import java.util.concurrent.ConcurrentHashMap
 
-/**
- * Diagnostic tracking model for per-package notification capture pipeline.
- * Adheres strictly to privacy guidelines: NEVER exposes private message text.
- */
 data class PackageDiagnosticStatus(
     val packageName: String,
     val appDisplayName: String,
@@ -17,10 +13,12 @@ data class PackageDiagnosticStatus(
     val packageAccepted: Boolean = false,
     val messageExtracted: Boolean = false,
     val databaseInserted: Boolean = false,
+    val mediaSaved: Boolean = false,
     val statusReason: String = "No notification events received yet",
     val lastEventTimestamp: Long = 0L,
     val totalEventsReceived: Int = 0,
-    val totalMessagesSaved: Int = 0
+    val totalMessagesSaved: Int = 0,
+    val totalMediaSaved: Int = 0
 )
 
 data class DiagnosticLogEntry(
@@ -45,19 +43,7 @@ object DiagnosticTracker {
     val recentLogs: StateFlow<List<DiagnosticLogEntry>> = _recentLogs.asStateFlow()
 
     init {
-        // Initialize with default supported apps so the diagnostic view shows all monitored apps
-        SupportedAppRegistry.ALL_SUPPORTED_APPS.forEach { app ->
-            packageMap[app.packageName] = PackageDiagnosticStatus(
-                packageName = app.packageName,
-                appDisplayName = app.displayName,
-                notificationReceived = false,
-                packageAccepted = false,
-                messageExtracted = false,
-                databaseInserted = false,
-                statusReason = "Awaiting first notification event from Android system"
-            )
-        }
-        updateState()
+        clearDiagnostics()
     }
 
     private fun updateState() {
@@ -184,7 +170,7 @@ object DiagnosticTracker {
         packageMap[packageName] = current.copy(
             databaseInserted = true,
             totalMessagesSaved = current.totalMessagesSaved + count,
-            statusReason = "Database insertion succeeded: saved $count message(s)",
+            statusReason = "Database insertion succeeded (Saved $count record(s))",
             lastEventTimestamp = System.currentTimeMillis()
         )
         addLog(
@@ -195,7 +181,7 @@ object DiagnosticTracker {
                 packageAccepted = true,
                 messageExtracted = true,
                 databaseInserted = true,
-                statusReason = "Database Insertion Succeeded: $count message(s) saved"
+                statusReason = "Database insertion succeeded ($count message(s))"
             )
         )
         updateState()
@@ -211,8 +197,8 @@ object DiagnosticTracker {
             lastEventTimestamp = System.currentTimeMillis()
         )
         packageMap[packageName] = current.copy(
-            databaseInserted = true, // pipeline successfully processed and deduplicated
-            statusReason = "Database skipped: $reason",
+            databaseInserted = current.databaseInserted,
+            statusReason = reason,
             lastEventTimestamp = System.currentTimeMillis()
         )
         addLog(
@@ -222,8 +208,8 @@ object DiagnosticTracker {
                 notificationReceived = true,
                 packageAccepted = true,
                 messageExtracted = true,
-                databaseInserted = true,
-                statusReason = "Deduplication/Audit: $reason"
+                databaseInserted = current.databaseInserted,
+                statusReason = reason
             )
         )
         updateState()
@@ -240,7 +226,7 @@ object DiagnosticTracker {
         )
         packageMap[packageName] = current.copy(
             databaseInserted = false,
-            statusReason = "Database insertion failed: $reason",
+            statusReason = "Insertion error: $reason",
             lastEventTimestamp = System.currentTimeMillis()
         )
         addLog(
@@ -257,14 +243,27 @@ object DiagnosticTracker {
         updateState()
     }
 
+    fun recordMediaSaved(packageName: String, appDisplayName: String, type: String) {
+        val current = packageMap[packageName] ?: PackageDiagnosticStatus(
+            packageName = packageName,
+            appDisplayName = appDisplayName
+        )
+        packageMap[packageName] = current.copy(
+            mediaSaved = true,
+            totalMediaSaved = current.totalMediaSaved + 1,
+            statusReason = "Successfully copied and preserved $type in MediaVault",
+            lastEventTimestamp = System.currentTimeMillis()
+        )
+        updateState()
+    }
+
     private fun addLog(entry: DiagnosticLogEntry) {
-        val current = _recentLogs.value.toMutableList()
-        current.add(0, entry)
-        if (current.size > 50) {
-            _recentLogs.value = current.take(50)
-        } else {
-            _recentLogs.value = current
+        val currentList = _recentLogs.value.toMutableList()
+        currentList.add(0, entry)
+        if (currentList.size > 50) {
+            currentList.removeAt(currentList.lastIndex)
         }
+        _recentLogs.value = currentList
     }
 
     fun clearDiagnostics() {
@@ -273,7 +272,11 @@ object DiagnosticTracker {
             packageMap[app.packageName] = PackageDiagnosticStatus(
                 packageName = app.packageName,
                 appDisplayName = app.displayName,
-                statusReason = "Diagnostics reset: awaiting events"
+                notificationReceived = false,
+                packageAccepted = false,
+                messageExtracted = false,
+                databaseInserted = false,
+                statusReason = "Awaiting first notification event from Android system"
             )
         }
         _recentLogs.value = emptyList()

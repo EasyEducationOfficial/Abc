@@ -33,8 +33,11 @@ class AppPreferences(private val context: Context) {
         private val KEY_APP_LOCK_PIN = stringPreferencesKey("app_lock_pin")
         private val KEY_BIOMETRICS_ENABLED = booleanPreferencesKey("biometrics_enabled")
         private val KEY_ONBOARDING_COMPLETED = booleanPreferencesKey("onboarding_completed")
+        private val KEY_PERMISSION_WIZARD_COMPLETED = booleanPreferencesKey("permission_wizard_completed")
         private val KEY_MONITOR_GENERIC_APPS = booleanPreferencesKey("monitor_generic_apps")
         private val KEY_MONITOR_ALL_NOTIFICATIONS = booleanPreferencesKey("monitor_all_notifications")
+        private val KEY_SAF_MEDIA_TREE_URI = stringPreferencesKey("saf_media_tree_uri")
+        private val KEY_AUTO_SAVE_MEDIA = booleanPreferencesKey("auto_save_media")
 
         val DEFAULT_MONITORED_PACKAGES = SupportedAppRegistry.ALL_SUPPORTED_APPS.map { it.packageName }.toSet()
     }
@@ -77,12 +80,24 @@ class AppPreferences(private val context: Context) {
         prefs[KEY_ONBOARDING_COMPLETED] ?: false
     }
 
+    val isPermissionWizardCompleted: Flow<Boolean> = dataStoreFlow.map { prefs ->
+        prefs[KEY_PERMISSION_WIZARD_COMPLETED] ?: false
+    }
+
     val isGenericAppsMonitoringEnabled: Flow<Boolean> = dataStoreFlow.map { prefs ->
         prefs[KEY_MONITOR_GENERIC_APPS] ?: true
     }
 
     val isAllNotificationsMonitoringEnabled: Flow<Boolean> = dataStoreFlow.map { prefs ->
         prefs[KEY_MONITOR_ALL_NOTIFICATIONS] ?: false
+    }
+
+    val safMediaTreeUri: Flow<String?> = dataStoreFlow.map { prefs ->
+        prefs[KEY_SAF_MEDIA_TREE_URI]
+    }
+
+    val isAutoSaveMediaEnabled: Flow<Boolean> = dataStoreFlow.map { prefs ->
+        prefs[KEY_AUTO_SAVE_MEDIA] ?: true
     }
 
     suspend fun setMonitoredPackages(packages: Set<String>) {
@@ -124,13 +139,11 @@ class AppPreferences(private val context: Context) {
             prefs[KEY_APP_LOCK_ENABLED] = enabled
             if (pin != null) {
                 prefs[KEY_APP_LOCK_PIN] = pin
-            } else if (!enabled) {
-                prefs.remove(KEY_APP_LOCK_PIN)
             }
         }
     }
 
-    suspend fun setBiometricsEnabled(enabled: Boolean) {
+    suspend fun setBiometrics(enabled: Boolean) {
         context.dataStore.edit { prefs ->
             prefs[KEY_BIOMETRICS_ENABLED] = enabled
         }
@@ -139,6 +152,12 @@ class AppPreferences(private val context: Context) {
     suspend fun setOnboardingCompleted(completed: Boolean) {
         context.dataStore.edit { prefs ->
             prefs[KEY_ONBOARDING_COMPLETED] = completed
+        }
+    }
+
+    suspend fun setPermissionWizardCompleted(completed: Boolean) {
+        context.dataStore.edit { prefs ->
+            prefs[KEY_PERMISSION_WIZARD_COMPLETED] = completed
         }
     }
 
@@ -151,6 +170,22 @@ class AppPreferences(private val context: Context) {
     suspend fun setAllNotificationsMonitoring(enabled: Boolean) {
         context.dataStore.edit { prefs ->
             prefs[KEY_MONITOR_ALL_NOTIFICATIONS] = enabled
+        }
+    }
+
+    suspend fun setSafMediaTreeUri(uriString: String?) {
+        context.dataStore.edit { prefs ->
+            if (uriString != null) {
+                prefs[KEY_SAF_MEDIA_TREE_URI] = uriString
+            } else {
+                prefs.remove(KEY_SAF_MEDIA_TREE_URI)
+            }
+        }
+    }
+
+    suspend fun setAutoSaveMedia(enabled: Boolean) {
+        context.dataStore.edit { prefs ->
+            prefs[KEY_AUTO_SAVE_MEDIA] = enabled
         }
     }
 }

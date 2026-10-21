@@ -1,13 +1,15 @@
 package com.example.ui.screens
 
-import android.os.Build
+import android.content.Context
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
@@ -18,15 +20,18 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.example.service.PackageDiagnosticStatus
+import com.example.data.model.SupportedAppRegistry
 import com.example.service.DiagnosticLogEntry
-import com.example.ui.components.formatFullDateTime
+import com.example.service.DiagnosticTracker
+import com.example.service.PackageDiagnosticStatus
+import com.example.ui.components.formatRelativeTime
+import com.example.ui.theme.AmberFavorite
 import com.example.ui.theme.EmeraldSuccess
-import com.example.ui.theme.IndigoLight
+import com.example.ui.theme.RubyError
 import com.example.ui.viewmodel.MainViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -34,489 +39,438 @@ import com.example.ui.viewmodel.MainViewModel
 fun TroubleshootingScreen(
     viewModel: MainViewModel,
     onNavigateBack: () -> Unit,
-    modifier: Modifier = Modifier
+    onNavigateToPermissions: () -> Unit
 ) {
     val context = LocalContext.current
-    val isConnected by viewModel.isServiceConnected.collectAsStateWithLifecycle()
-    val lastCaptured by viewModel.lastCapturedTime.collectAsStateWithLifecycle()
-    val sessionCount by viewModel.totalCapturedInSession.collectAsStateWithLifecycle()
-    val packageDiagnostics by viewModel.packageDiagnostics.collectAsStateWithLifecycle()
-    val recentLogs by viewModel.recentDiagnosticLogs.collectAsStateWithLifecycle()
-    var isAccessGranted by remember { mutableStateOf(viewModel.checkNotificationAccess()) }
+    val isServiceConnected by viewModel.isServiceConnected.collectAsState()
+    val isMediaObserverActive by viewModel.isMediaObserverActive.collectAsState()
+    val totalCaptured by viewModel.totalCapturedInSession.collectAsState()
+    val totalMedia by viewModel.totalMediaPreserved.collectAsState()
+    val packageDiagnostics by viewModel.packageDiagnostics.collectAsState()
+    val recentLogs by viewModel.recentDiagnosticLogs.collectAsState()
 
-    var testMessageInput by remember { mutableStateOf("Testing MsgVault capture: will this unsent message stay?") }
-    var testNotificationSent by remember { mutableStateOf(false) }
-    var diagnosticSearchQuery by remember { mutableStateOf("") }
-
-    DisposableEffect(Unit) {
-        isAccessGranted = viewModel.checkNotificationAccess()
-        onDispose { }
-    }
+    var selectedTab by remember { mutableIntStateOf(0) }
+    var showTestDialog by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Diagnostics & Health", fontWeight = FontWeight.Bold) },
-                navigationIcon = {
-                    IconButton(
-                        onClick = onNavigateBack,
-                        modifier = Modifier.testTag("troubleshoot_back_button")
-                    ) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background
-                )
-            )
-        },
-        modifier = modifier
-    ) { innerPadding ->
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding)
-                .padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
-        ) {
-            // Live Diagnostics Card
-            item {
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(20.dp),
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-                    ),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
-                ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
+                title = {
+                    Column {
                         Text(
-                            text = "LIVE SYSTEM STATUS",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.primary,
-                            fontWeight = FontWeight.Bold
+                            text = "Pipeline Diagnostics",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 18.sp
                         )
-
-                        DiagnosticRow(
-                            label = "Notification Listener Permission",
-                            value = if (isAccessGranted) "Granted" else "Missing / Denied",
-                            isSuccess = isAccessGranted
-                        )
-
-                        DiagnosticRow(
-                            label = "Notification Listener Service",
-                            value = if (isConnected) "Active & Bound" else "Disconnected / Standby",
-                            isSuccess = isConnected
-                        )
-
-                        DiagnosticRow(
-                            label = "Session Captured Count",
-                            value = "$sessionCount messages",
-                            isSuccess = true
-                        )
-
-                        DiagnosticRow(
-                            label = "Last Captured Time",
-                            value = if (lastCaptured > 0) formatFullDateTime(lastCaptured) else "None in this session",
-                            isSuccess = lastCaptured > 0
-                        )
-
-                        if (!isAccessGranted) {
-                            Button(
-                                onClick = { viewModel.openNotificationAccessSettings(context) },
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .testTag("fix_permission_button"),
-                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
-                            ) {
-                                Text("Open Android Settings to Enable")
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Real Test Notification Tool
-            item {
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(20.dp),
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
-                    ),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
-                ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                imageVector = Icons.Default.NotificationsActive,
-                                contentDescription = null,
-                                tint = IndigoLight,
-                                modifier = Modifier.size(22.dp)
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                text = "Verify Capture With Real Notification",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-
                         Text(
-                            text = "Send a test notification to your system tray. The NotificationCaptureService will intercept and store it in MsgVault immediately.",
+                            text = "Notification → Filter → Parser → Room DB",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
-
-                        OutlinedTextField(
-                            value = testMessageInput,
-                            onValueChange = { testMessageInput = it },
-                            label = { Text("Test Message Text") },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .testTag("test_message_input"),
-                            shape = RoundedCornerShape(12.dp)
+                    }
+                },
+                navigationIcon = {
+                    IconButton(
+                        onClick = onNavigateBack,
+                        modifier = Modifier.testTag("troubleshooting_back_button")
+                    ) {
+                        Icon(imageVector = Icons.Default.ArrowBack, contentDescription = "Back")
+                    }
+                },
+                actions = {
+                    IconButton(
+                        onClick = { showTestDialog = true },
+                        modifier = Modifier.testTag("test_notification_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Send,
+                            contentDescription = "Test Notification",
+                            tint = MaterialTheme.colorScheme.primary
                         )
-
-                        Button(
-                            onClick = {
-                                viewModel.sendTestNotification(context, testMessageInput)
-                                testNotificationSent = true
-                            },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .testTag("send_test_notification_action"),
-                            shape = RoundedCornerShape(12.dp)
-                        ) {
-                            Icon(Icons.Default.Send, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Dispatch Test Notification")
-                        }
-
-                        FilledTonalButton(
-                            onClick = {
-                                viewModel.simulateDeletionNotification(context)
-                                testNotificationSent = true
-                            },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .testTag("simulate_deleted_notification_action"),
-                            shape = RoundedCornerShape(12.dp)
-                        ) {
-                            Icon(Icons.Default.DeleteForever, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Simulate Deletion ('This message was deleted')")
-                        }
-
-                        if (testNotificationSent) {
+                    }
+                    IconButton(
+                        onClick = { DiagnosticTracker.clearDiagnostics() }
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.DeleteOutline,
+                            contentDescription = "Clear Diagnostics"
+                        )
+                    }
+                }
+            )
+        }
+    ) { innerPadding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+        ) {
+            // Pipeline Summary Header Card
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                )
+            ) {
+                Column(modifier = Modifier.padding(14.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Surface(
+                                shape = CircleShape,
+                                color = if (isServiceConnected) EmeraldSuccess else RubyError,
+                                modifier = Modifier.size(10.dp)
+                            ) {}
+                            Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                text = "Notification dispatched! MsgVault will capture and preserve it.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = EmeraldSuccess,
-                                fontWeight = FontWeight.SemiBold
+                                text = if (isServiceConnected) "Capture Service: Active" else "Capture Service: Disconnected",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 13.sp,
+                                color = if (isServiceConnected) EmeraldSuccess else RubyError
                             )
                         }
 
-                        HorizontalDivider(
-                            modifier = Modifier.padding(vertical = 4.dp),
-                            color = MaterialTheme.colorScheme.outline.copy(alpha = 0.15f)
-                        )
-
-                        OutlinedButton(
-                            onClick = { viewModel.seedSampleDemoMessages() },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .testTag("seed_demo_messages_button"),
-                            shape = RoundedCornerShape(12.dp)
-                        ) {
-                            Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Load Realistic Demo Messages (WhatsApp, IG, Telegram)")
+                        if (!isServiceConnected) {
+                            TextButton(
+                                onClick = onNavigateToPermissions,
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                            ) {
+                                Text("Fix in Settings", fontSize = 12.sp)
+                            }
                         }
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Divider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.15f))
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceAround
+                    ) {
+                        MetricItem("Captured Today", totalCaptured.toString(), Icons.Default.Message)
+                        MetricItem("Media Saved", totalMedia.toString(), Icons.Default.PhotoLibrary)
+                        MetricItem(
+                            "Storage Observer",
+                            if (isMediaObserverActive) "Active" else "Idle",
+                            Icons.Default.FolderOpen
+                        )
                     }
                 }
             }
 
-            // Per-Package Capture Diagnostics Section
-            item {
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(20.dp),
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-                    ),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.3f))
+            // Tabs: Supported Apps Pipeline vs Real-Time Event Logs
+            PrimaryTabRow(
+                selectedTabIndex = selectedTab,
+                modifier = Modifier.padding(horizontal = 16.dp)
+            ) {
+                Tab(
+                    selected = selectedTab == 0,
+                    onClick = { selectedTab = 0 },
+                    text = { Text("App Pipeline Status", fontWeight = FontWeight.SemiBold) }
+                )
+                Tab(
+                    selected = selectedTab == 1,
+                    onClick = { selectedTab = 1 },
+                    text = { Text("Diagnostic Logs (${recentLogs.size})", fontWeight = FontWeight.SemiBold) }
+                )
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            if (selectedTab == 0) {
+                // List of each supported app's 5-stage pipeline
+                val allApps = SupportedAppRegistry.ALL_SUPPORTED_APPS
+                val statusMap = packageDiagnostics.associateBy { it.packageName }
+
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
+                    item {
+                        Card(
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
+                            ),
+                            shape = RoundedCornerShape(12.dp)
                         ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = "PER-PACKAGE CAPTURE DIAGNOSTICS",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.primary,
-                                    fontWeight = FontWeight.Bold
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Shield,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(20.dp)
                                 )
+                                Spacer(modifier = Modifier.width(8.dp))
                                 Text(
-                                    text = "Inspect the 4-stage pipeline: Event Received → Filter Accepted → Message Extracted → Database Insertion. (Private message text is never exposed in logs).",
-                                    style = MaterialTheme.typography.bodySmall,
+                                    text = "Privacy Protected: Diagnostics verify capture steps without storing or displaying message text.",
+                                    fontSize = 11.sp,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
-                            IconButton(
-                                onClick = { viewModel.clearDiagnostics() },
-                                modifier = Modifier.testTag("reset_diagnostics_button")
-                            ) {
-                                Icon(Icons.Default.Refresh, contentDescription = "Reset Diagnostics")
-                            }
                         }
+                    }
 
-                        OutlinedTextField(
-                            value = diagnosticSearchQuery,
-                            onValueChange = { diagnosticSearchQuery = it },
-                            placeholder = { Text("Filter package diagnostics…", fontSize = 12.sp) },
-                            leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(16.dp)) },
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(12.dp)
-                        )
+                    items(allApps, key = { it.packageName }) { app ->
+                        val status = statusMap[app.packageName]
+                        AppPipelineCard(app = app, status = status)
+                    }
+
+                    item {
+                        Spacer(modifier = Modifier.height(16.dp))
                     }
                 }
-            }
-
-            // Per-Package Diagnostic Cards
-            val filteredDiagnostics = packageDiagnostics.filter {
-                if (diagnosticSearchQuery.isBlank()) true
-                else it.appDisplayName.contains(diagnosticSearchQuery, ignoreCase = true) ||
-                        it.packageName.contains(diagnosticSearchQuery, ignoreCase = true)
-            }
-
-            items(filteredDiagnostics.size) { index ->
-                val diag = filteredDiagnostics[index]
-                PackageDiagnosticCard(diag = diag)
-            }
-
-            // OEM Battery Optimization & Troubleshooting
-            item {
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(20.dp),
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
-                    ),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.15f))
-                ) {
-                    Column(
+            } else {
+                // Real-time Event Logs
+                if (recentLogs.isEmpty()) {
+                    Box(
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(16.dp),
+                            .fillMaxSize()
+                            .padding(32.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Icon(
+                                imageVector = Icons.Default.ReceiptLong,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                                modifier = Modifier.size(48.dp)
+                            )
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Text(
+                                text = "No diagnostic events logged yet",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = "Incoming notifications from WhatsApp, Messenger, etc. will show step-by-step processing here.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                            )
+                        }
+                    }
+                } else {
+                    LazyColumn(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(horizontal = 16.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Text(
-                            text = "DEVICE OEM BACKGROUND GUIDE",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            fontWeight = FontWeight.Bold
-                        )
-
-                        GuidanceItem(
-                            device = "Samsung (OneUI)",
-                            instruction = "Go to Settings → Apps → MsgVault → Battery → Select 'Unrestricted'. Ensure MsgVault is not in 'Sleeping apps'."
-                        )
-                        GuidanceItem(
-                            device = "Xiaomi / Redmi (MIUI / HyperOS)",
-                            instruction = "Enable 'Autostart' for MsgVault in app info, and set Battery Saver to 'No restrictions'."
-                        )
-                        GuidanceItem(
-                            device = "OnePlus / Oppo (OxygenOS / ColorOS)",
-                            instruction = "Turn off 'Optimize battery usage' for MsgVault in Battery settings."
-                        )
-                        GuidanceItem(
-                            device = "Stock Android / Google Pixel",
-                            instruction = "Settings → Apps → MsgVault → App battery usage → Choose 'Unrestricted'."
-                        )
+                        items(recentLogs, key = { it.id }) { log ->
+                            DiagnosticLogCard(log)
+                        }
+                        item {
+                            Spacer(modifier = Modifier.height(16.dp))
+                        }
                     }
                 }
             }
-
-            item {
-                Spacer(modifier = Modifier.height(24.dp))
-            }
         }
+    }
+
+    if (showTestDialog) {
+        AlertDialog(
+            onDismissRequest = { showTestDialog = false },
+            title = { Text("Fire Simulated Notification") },
+            text = {
+                Text(
+                    text = "Select a messaging platform to send a local test notification. This tests the NotificationListenerService → Parser → Room DB pipeline directly on this device.",
+                    fontSize = 13.sp
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.sendSimulatedTestNotification("com.whatsapp", "WhatsApp")
+                        showTestDialog = false
+                    }
+                ) {
+                    Text("WhatsApp")
+                }
+            },
+            dismissButton = {
+                Row {
+                    TextButton(
+                        onClick = {
+                            viewModel.sendSimulatedTestNotification("com.facebook.orca", "Messenger")
+                            showTestDialog = false
+                        }
+                    ) {
+                        Text("Messenger")
+                    }
+                    TextButton(
+                        onClick = {
+                            viewModel.sendSimulatedTestNotification("com.instagram.android", "Instagram")
+                            showTestDialog = false
+                        }
+                    ) {
+                        Text("Instagram")
+                    }
+                }
+            }
+        )
     }
 }
 
 @Composable
-private fun DiagnosticRow(label: String, value: String, isSuccess: Boolean) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
+fun MetricItem(label: String, value: String, icon: androidx.compose.ui.graphics.vector.ImageVector) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.size(18.dp)
+        )
+        Spacer(modifier = Modifier.height(2.dp))
         Text(
-            text = label,
-            style = MaterialTheme.typography.bodyMedium,
+            text = value,
+            fontWeight = FontWeight.Bold,
+            fontSize = 15.sp,
             color = MaterialTheme.colorScheme.onSurface
         )
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(
-                modifier = Modifier
-                    .size(8.dp)
-                    .clip(CircleShape)
-                    .background(if (isSuccess) EmeraldSuccess else MaterialTheme.colorScheme.error)
-            )
-            Spacer(modifier = Modifier.width(6.dp))
-            Text(
-                text = value,
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.Bold,
-                color = if (isSuccess) EmeraldSuccess else MaterialTheme.colorScheme.error
-            )
-        }
-    }
-}
-
-@Composable
-private fun GuidanceItem(device: String, instruction: String) {
-    Column(modifier = Modifier.padding(vertical = 4.dp)) {
         Text(
-            text = device,
-            style = MaterialTheme.typography.titleSmall,
-            fontWeight = FontWeight.SemiBold,
-            color = MaterialTheme.colorScheme.primary
-        )
-        Text(
-            text = instruction,
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            lineHeight = 18.sp
+            text = label,
+            fontSize = 10.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
         )
     }
 }
 
 @Composable
-private fun PackageDiagnosticCard(diag: PackageDiagnosticStatus) {
+fun AppPipelineCard(
+    app: com.example.data.model.SupportedApp,
+    status: PackageDiagnosticStatus?
+) {
     Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .testTag("diagnostic_card_${diag.packageName}"),
+        modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(14.dp),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
+            containerColor = MaterialTheme.colorScheme.surface
         ),
         border = androidx.compose.foundation.BorderStroke(
             1.dp,
-            if (diag.notificationReceived) MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)
-            else MaterialTheme.colorScheme.outline.copy(alpha = 0.15f)
+            MaterialTheme.colorScheme.outline.copy(alpha = 0.15f)
         )
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
+        Column(modifier = Modifier.padding(14.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
+                Surface(
+                    shape = CircleShape,
+                    color = Color(app.brandColorHex),
+                    modifier = Modifier.size(32.dp)
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Text(
+                            text = app.displayName.take(1),
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 14.sp
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.width(10.dp))
+
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = diag.appDisplayName,
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.Bold
+                        text = app.displayName,
+                        fontWeight = FontWeight.Bold,
+                        style = MaterialTheme.typography.titleSmall
                     )
                     Text(
-                        text = diag.packageName,
-                        style = MaterialTheme.typography.labelSmall,
+                        text = app.packageName,
+                        fontSize = 10.sp,
+                        fontFamily = FontFamily.Monospace,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
 
-                if (diag.totalMessagesSaved > 0) {
+                if (status != null && status.totalEventsReceived > 0) {
                     Surface(
                         shape = RoundedCornerShape(6.dp),
                         color = EmeraldSuccess.copy(alpha = 0.15f)
                     ) {
                         Text(
-                            text = "${diag.totalMessagesSaved} SAVED",
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold,
+                            text = "${status.totalMessagesSaved} saved",
                             color = EmeraldSuccess,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
                             modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                         )
                     }
                 }
             }
 
-            // 4-stage pipeline checklist:
-            // 1. Notification Event Received
-            // 2. Package Accepted by Filter
-            // 3. Message Text Extracted
-            // 4. Database Insertion Succeeded
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // 4-Stage Pipeline Indicators
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 PipelineStageBadge(
-                    stage = "Received",
-                    success = diag.notificationReceived,
-                    modifier = Modifier.weight(1f)
+                    stepNumber = "1",
+                    title = "Received",
+                    isSuccess = status?.notificationReceived == true
                 )
                 PipelineStageBadge(
-                    stage = "Accepted",
-                    success = diag.packageAccepted,
-                    modifier = Modifier.weight(1f)
+                    stepNumber = "2",
+                    title = "Accepted",
+                    isSuccess = status?.packageAccepted == true
                 )
                 PipelineStageBadge(
-                    stage = "Extracted",
-                    success = diag.messageExtracted,
-                    modifier = Modifier.weight(1f)
+                    stepNumber = "3",
+                    title = "Extracted",
+                    isSuccess = status?.messageExtracted == true
                 )
                 PipelineStageBadge(
-                    stage = "Inserted",
-                    success = diag.databaseInserted,
-                    modifier = Modifier.weight(1f)
+                    stepNumber = "4",
+                    title = "Inserted",
+                    isSuccess = status?.databaseInserted == true
                 )
             }
 
-            // Diagnostic status reason
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // Diagnostic Reason / Details
+            val reason = status?.statusReason ?: "No notification events received from Android OS yet"
             Surface(
                 shape = RoundedCornerShape(8.dp),
-                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.8f),
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Column(modifier = Modifier.padding(8.dp)) {
-                    Text(
-                        text = "Status / Reason:",
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.primary
+                Row(
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = if (status != null && status.databaseInserted) Icons.Default.CheckCircle else Icons.Default.Info,
+                        contentDescription = null,
+                        tint = if (status != null && status.databaseInserted) EmeraldSuccess else MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(14.dp)
                     )
+                    Spacer(modifier = Modifier.width(6.dp))
                     Text(
-                        text = diag.statusReason,
+                        text = reason,
                         fontSize = 11.sp,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        lineHeight = 15.sp
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             }
@@ -525,28 +479,105 @@ private fun PackageDiagnosticCard(diag: PackageDiagnosticStatus) {
 }
 
 @Composable
-private fun PipelineStageBadge(stage: String, success: Boolean, modifier: Modifier = Modifier) {
-    Surface(
-        modifier = modifier,
-        shape = RoundedCornerShape(8.dp),
-        color = if (success) EmeraldSuccess.copy(alpha = 0.15f) else MaterialTheme.colorScheme.surfaceVariant
-    ) {
-        Column(
-            modifier = Modifier.padding(vertical = 4.dp, horizontal = 2.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
+fun PipelineStageBadge(stepNumber: String, title: String, isSuccess: Boolean) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Surface(
+            shape = CircleShape,
+            color = if (isSuccess) EmeraldSuccess else MaterialTheme.colorScheme.surfaceVariant,
+            modifier = Modifier.size(24.dp)
         ) {
-            Text(
-                text = stage,
-                fontSize = 9.sp,
-                fontWeight = FontWeight.Medium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+            Box(contentAlignment = Alignment.Center) {
+                if (isSuccess) {
+                    Icon(
+                        imageVector = Icons.Default.Check,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(14.dp)
+                    )
+                } else {
+                    Text(
+                        text = stepNumber,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        }
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(
+            text = title,
+            fontSize = 10.sp,
+            fontWeight = if (isSuccess) FontWeight.Bold else FontWeight.Normal,
+            color = if (isSuccess) EmeraldSuccess else MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+}
+
+@Composable
+fun DiagnosticLogCard(log: DiagnosticLogEntry) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(10.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surface
+        ),
+        border = androidx.compose.foundation.BorderStroke(
+            1.dp,
+            MaterialTheme.colorScheme.outline.copy(alpha = 0.12f)
+        )
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(10.dp),
+            verticalAlignment = Alignment.Top
+        ) {
+            Icon(
+                imageVector = when {
+                    log.databaseInserted -> Icons.Default.CheckCircle
+                    !log.packageAccepted -> Icons.Default.FilterAltOff
+                    !log.messageExtracted -> Icons.Default.Warning
+                    else -> Icons.Default.Info
+                },
+                contentDescription = null,
+                tint = when {
+                    log.databaseInserted -> EmeraldSuccess
+                    !log.packageAccepted -> AmberFavorite
+                    else -> RubyError
+                },
+                modifier = Modifier
+                    .size(18.dp)
+                    .padding(top = 2.dp)
             )
-            Text(
-                text = if (success) "YES" else "NO",
-                fontSize = 10.sp,
-                fontWeight = FontWeight.Bold,
-                color = if (success) EmeraldSuccess else MaterialTheme.colorScheme.outline
-            )
+
+            Spacer(modifier = Modifier.width(10.dp))
+
+            Column(modifier = Modifier.weight(1f)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = log.appDisplayName,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 12.sp
+                    )
+                    Text(
+                        text = formatRelativeTime(log.timestamp),
+                        fontSize = 10.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(2.dp))
+
+                Text(
+                    text = log.statusReason,
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
         }
     }
 }

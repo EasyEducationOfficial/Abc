@@ -2,9 +2,9 @@ package com.example
 
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.activity.viewModels
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -12,194 +12,167 @@ import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.navigation.NavGraph.Companion.findStartDestination
-import androidx.navigation.NavType
-import androidx.navigation.compose.*
-import androidx.navigation.navArgument
-import com.example.ui.navigation.Screen
+import com.example.data.local.AppDatabase
+import com.example.data.preferences.AppPreferences
+import com.example.repository.MessageRepository
 import com.example.ui.screens.*
-import com.example.ui.theme.MsgVaultTheme
+import com.example.ui.theme.MyApplicationTheme
 import com.example.ui.viewmodel.MainViewModel
 
-data class BottomNavItem(
-    val route: String,
-    val label: String,
-    val selectedIcon: ImageVector,
-    val unselectedIcon: ImageVector,
-    val testTag: String
-)
+sealed class AppDestination {
+    object Dashboard : AppDestination()
+    object Messages : AppDestination()
+    object MediaVault : AppDestination()
+    object Troubleshooting : AppDestination()
+    object Apps : AppDestination()
+    object PermissionWizard : AppDestination()
+    data class MessageDetail(val messageId: Long) : AppDestination()
+}
 
 class MainActivity : ComponentActivity() {
-
-    private val viewModel: MainViewModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
+        val db = AppDatabase.getInstance(applicationContext)
+        val repo = MessageRepository(db)
+        val prefs = AppPreferences(applicationContext)
+
         setContent {
-            MsgVaultTheme {
-                val isOnboardingCompleted by viewModel.isOnboardingCompleted.collectAsStateWithLifecycle()
-                val isAppLockEnabled by viewModel.isAppLockEnabled.collectAsStateWithLifecycle()
-                val isAppUnlocked by viewModel.isAppUnlocked.collectAsStateWithLifecycle()
-                val appLockPin by viewModel.appLockPin.collectAsStateWithLifecycle()
+            MyApplicationTheme {
+                val viewModel = remember {
+                    MainViewModel(applicationContext, repo, prefs)
+                }
 
-                val navController = rememberNavController()
-                val navBackStackEntry by navController.currentBackStackEntryAsState()
-                val currentRoute = navBackStackEntry?.destination?.route
+                val isWizardCompleted by viewModel.isPermissionWizardCompleted.collectAsState()
+                var currentDestination by remember {
+                    mutableStateOf<AppDestination>(
+                        if (isWizardCompleted) AppDestination.Dashboard else AppDestination.PermissionWizard
+                    )
+                }
 
-                val bottomNavItems = listOf(
-                    BottomNavItem(Screen.Dashboard.route, "Dashboard", Icons.Filled.Dashboard, Icons.Outlined.Dashboard, "nav_dashboard"),
-                    BottomNavItem(Screen.Messages.route, "Messages", Icons.Filled.Forum, Icons.Outlined.Forum, "nav_messages"),
-                    BottomNavItem(Screen.Favorites.route, "Favorites", Icons.Filled.Star, Icons.Outlined.StarOutline, "nav_favorites"),
-                    BottomNavItem(Screen.Apps.route, "Apps", Icons.Filled.Apps, Icons.Outlined.Apps, "nav_apps"),
-                    BottomNavItem(Screen.Security.route, "Security", Icons.Filled.Security, Icons.Outlined.Security, "nav_security")
-                )
-
-                val showBottomBar = bottomNavItems.any { it.route == currentRoute }
-
-                // Determine display flow: Lock Screen -> Onboarding Screen -> Main Navigation
-                when {
-                    isAppLockEnabled && !isAppUnlocked -> {
-                        AppLockScreen(
-                            viewModel = viewModel,
-                            expectedPin = appLockPin,
-                            onUnlocked = { viewModel.unlockApp() }
-                        )
+                // If wizard finishes and user was on wizard, go to dashboard
+                LaunchedEffect(isWizardCompleted) {
+                    if (isWizardCompleted && currentDestination is AppDestination.PermissionWizard) {
+                        currentDestination = AppDestination.Dashboard
                     }
-                    !isOnboardingCompleted -> {
-                        OnboardingScreen(
-                            viewModel = viewModel,
-                            onComplete = {
-                                viewModel.completeOnboarding()
-                            }
-                        )
+                }
+
+                // Back handling
+                if (currentDestination !is AppDestination.Dashboard && currentDestination !is AppDestination.PermissionWizard) {
+                    BackHandler {
+                        currentDestination = AppDestination.Dashboard
                     }
-                    else -> {
-                        Scaffold(
-                            bottomBar = {
-                                if (showBottomBar) {
-                                    NavigationBar(
-                                        modifier = Modifier.testTag("main_bottom_nav"),
-                                        tonalElevation = 6.dp
-                                    ) {
-                                        bottomNavItems.forEach { item ->
-                                            val isSelected = currentRoute == item.route
-                                            NavigationBarItem(
-                                                selected = isSelected,
-                                                onClick = {
-                                                    navController.navigate(item.route) {
-                                                        popUpTo(navController.graph.findStartDestination().id) {
-                                                            saveState = true
-                                                        }
-                                                        launchSingleTop = true
-                                                        restoreState = true
-                                                    }
-                                                },
-                                                icon = {
-                                                    Icon(
-                                                        imageVector = if (isSelected) item.selectedIcon else item.unselectedIcon,
-                                                        contentDescription = item.label
-                                                    )
-                                                },
-                                                label = { Text(item.label) },
-                                                modifier = Modifier.testTag(item.testTag)
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-                        ) { innerPadding ->
-                            NavHost(
-                                navController = navController,
-                                startDestination = Screen.Dashboard.route,
-                                modifier = Modifier.padding(innerPadding)
+                }
+
+                Scaffold(
+                    modifier = Modifier.fillMaxSize(),
+                    bottomBar = {
+                        // Show bottom nav on top-level screens
+                        if (currentDestination in listOf(
+                                AppDestination.Dashboard,
+                                AppDestination.Messages,
+                                AppDestination.MediaVault,
+                                AppDestination.Troubleshooting
+                            )
+                        ) {
+                            NavigationBar(
+                                tonalElevation = 8.dp,
+                                modifier = Modifier.testTag("main_bottom_nav")
                             ) {
-                                composable(Screen.Dashboard.route) {
-                                    DashboardScreen(
-                                        viewModel = viewModel,
-                                        onNavigateToMessages = { navController.navigate(Screen.Messages.route) },
-                                        onNavigateToMessageDetail = { id -> navController.navigate(Screen.MessageDetail.createRoute(id)) },
-                                        onNavigateToSearch = { navController.navigate(Screen.Search.route) },
-                                        onNavigateToApps = { navController.navigate(Screen.Apps.route) },
-                                        onNavigateToTroubleshooting = { navController.navigate(Screen.Troubleshooting.route) },
-                                        onNavigateToDatabaseInspector = { navController.navigate(Screen.DatabaseInspector.route) }
-                                    )
-                                }
-
-                                composable(Screen.Messages.route) {
-                                    MessageHistoryScreen(
-                                        viewModel = viewModel,
-                                        onNavigateToMessageDetail = { id -> navController.navigate(Screen.MessageDetail.createRoute(id)) },
-                                        onNavigateToSearch = { navController.navigate(Screen.Search.route) }
-                                    )
-                                }
-
-                                composable(Screen.Favorites.route) {
-                                    FavoritesScreen(
-                                        viewModel = viewModel,
-                                        onNavigateToMessageDetail = { id -> navController.navigate(Screen.MessageDetail.createRoute(id)) }
-                                    )
-                                }
-
-                                composable(Screen.Apps.route) {
-                                    MonitoringSettingsScreen(
-                                        viewModel = viewModel,
-                                        onNavigateToTroubleshooting = { navController.navigate(Screen.Troubleshooting.route) }
-                                    )
-                                }
-
-                                composable(Screen.Security.route) {
-                                    PrivacySecurityScreen(
-                                        viewModel = viewModel,
-                                        onNavigateToAbout = { navController.navigate(Screen.About.route) },
-                                        onNavigateToDatabaseInspector = { navController.navigate(Screen.DatabaseInspector.route) }
-                                    )
-                                }
-
-                                composable(Screen.DatabaseInspector.route) {
-                                    DatabaseInspectorScreen(
-                                        viewModel = viewModel,
-                                        onNavigateBack = { navController.popBackStack() }
-                                    )
-                                }
-
-                                composable(Screen.Search.route) {
-                                    SearchScreen(
-                                        viewModel = viewModel,
-                                        onNavigateToMessageDetail = { id -> navController.navigate(Screen.MessageDetail.createRoute(id)) },
-                                        onNavigateBack = { navController.popBackStack() }
-                                    )
-                                }
-
-                                composable(Screen.Troubleshooting.route) {
-                                    TroubleshootingScreen(
-                                        viewModel = viewModel,
-                                        onNavigateBack = { navController.popBackStack() }
-                                    )
-                                }
-
-                                composable(Screen.About.route) {
-                                    AboutScreen(
-                                        onNavigateBack = { navController.popBackStack() }
-                                    )
-                                }
-
-                                composable(
-                                    route = Screen.MessageDetail.route,
-                                    arguments = listOf(navArgument("messageId") { type = NavType.LongType })
-                                ) { backStackEntry ->
-                                    val messageId = backStackEntry.arguments?.getLong("messageId") ?: 0L
-                                    MessageDetailScreen(
-                                        messageId = messageId,
-                                        viewModel = viewModel,
-                                        onNavigateBack = { navController.popBackStack() }
-                                    )
-                                }
+                                NavigationBarItem(
+                                    icon = { Icon(Icons.Default.Dashboard, contentDescription = "Dashboard") },
+                                    label = { Text("Dashboard") },
+                                    selected = currentDestination is AppDestination.Dashboard,
+                                    onClick = { currentDestination = AppDestination.Dashboard },
+                                    modifier = Modifier.testTag("nav_dashboard")
+                                )
+                                NavigationBarItem(
+                                    icon = { Icon(Icons.Default.ChatBubbleOutline, contentDescription = "Messages") },
+                                    label = { Text("Messages") },
+                                    selected = currentDestination is AppDestination.Messages,
+                                    onClick = { currentDestination = AppDestination.Messages },
+                                    modifier = Modifier.testTag("nav_messages")
+                                )
+                                NavigationBarItem(
+                                    icon = { Icon(Icons.Default.PermMedia, contentDescription = "Media Vault") },
+                                    label = { Text("Media Vault") },
+                                    selected = currentDestination is AppDestination.MediaVault,
+                                    onClick = { currentDestination = AppDestination.MediaVault },
+                                    modifier = Modifier.testTag("nav_media_vault")
+                                )
+                                NavigationBarItem(
+                                    icon = { Icon(Icons.Default.Analytics, contentDescription = "Diagnostics") },
+                                    label = { Text("Diagnostics") },
+                                    selected = currentDestination is AppDestination.Troubleshooting,
+                                    onClick = { currentDestination = AppDestination.Troubleshooting },
+                                    modifier = Modifier.testTag("nav_diagnostics")
+                                )
+                            }
+                        }
+                    }
+                ) { innerPadding ->
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(innerPadding)
+                    ) {
+                        when (val dest = currentDestination) {
+                            is AppDestination.PermissionWizard -> {
+                                PermissionWizardScreen(
+                                    viewModel = viewModel,
+                                    onComplete = {
+                                        currentDestination = AppDestination.Dashboard
+                                    }
+                                )
+                            }
+                            is AppDestination.Dashboard -> {
+                                DashboardScreen(
+                                    viewModel = viewModel,
+                                    onNavigateToMessages = { currentDestination = AppDestination.Messages },
+                                    onNavigateToMediaVault = { currentDestination = AppDestination.MediaVault },
+                                    onNavigateToDiagnostics = { currentDestination = AppDestination.Troubleshooting },
+                                    onNavigateToApps = { currentDestination = AppDestination.Apps },
+                                    onNavigateToPermissions = { currentDestination = AppDestination.PermissionWizard },
+                                    onNavigateToDetail = { id -> currentDestination = AppDestination.MessageDetail(id) }
+                                )
+                            }
+                            is AppDestination.Messages -> {
+                                MessagesScreen(
+                                    viewModel = viewModel,
+                                    onNavigateBack = { currentDestination = AppDestination.Dashboard },
+                                    onNavigateToDetail = { id -> currentDestination = AppDestination.MessageDetail(id) }
+                                )
+                            }
+                            is AppDestination.MediaVault -> {
+                                MediaVaultScreen(
+                                    viewModel = viewModel,
+                                    onNavigateBack = { currentDestination = AppDestination.Dashboard },
+                                    onNavigateToPermissions = { currentDestination = AppDestination.PermissionWizard }
+                                )
+                            }
+                            is AppDestination.Troubleshooting -> {
+                                TroubleshootingScreen(
+                                    viewModel = viewModel,
+                                    onNavigateBack = { currentDestination = AppDestination.Dashboard },
+                                    onNavigateToPermissions = { currentDestination = AppDestination.PermissionWizard }
+                                )
+                            }
+                            is AppDestination.Apps -> {
+                                AppsConfigScreen(
+                                    viewModel = viewModel,
+                                    onNavigateBack = { currentDestination = AppDestination.Dashboard }
+                                )
+                            }
+                            is AppDestination.MessageDetail -> {
+                                MessageDetailScreen(
+                                    messageId = dest.messageId,
+                                    viewModel = viewModel,
+                                    onNavigateBack = { currentDestination = AppDestination.Dashboard }
+                                )
                             }
                         }
                     }

@@ -103,7 +103,7 @@ class NotificationCaptureService : NotificationListenerService() {
                 }
             )
 
-            // Step 1: Record that a notification event was received from Android OS
+            // Step 1: Record notification event in DiagnosticTracker
             DiagnosticTracker.recordEventReceived(pkg, displayName)
 
             try {
@@ -120,7 +120,6 @@ class NotificationCaptureService : NotificationListenerService() {
                 val extras = notification?.extras
                 val isExplicitlyMonitored = monitored.contains(pkg)
 
-                // Generic messaging detection: check category, template, messages bundle, or conversation fields
                 val hasMessagingCategory = notification != null && (
                     notification.category == android.app.Notification.CATEGORY_MESSAGE ||
                     notification.category == android.app.Notification.CATEGORY_SOCIAL
@@ -188,29 +187,27 @@ class NotificationCaptureService : NotificationListenerService() {
                     parseResult.extractionMethod
                 )
 
-                // Step 4: Deduplication and Database insertion
+                // Step 4: Deduplication, Media linking, and Database insertion
                 val db = AppDatabase.getInstance(applicationContext)
                 val dao = db.messageDao()
+                val mediaDao = db.mediaVaultDao()
                 val now = System.currentTimeMillis()
 
                 for (msg in parsedMessages) {
-                    // Check if this notification is an anti-delete / unsend notice from the sender
+                    // Check if notification is an anti-delete / unsend notice from sender
                     val isDeletionNotice = msg.isDeletedBySender || NotificationParser.isDeletionNotice(msg.messageText)
 
                     if (isDeletionNotice) {
-                        // Look for the most recent message in the database from this sender / package
                         val targetMsg = dao.findLatestMessageForSender(msg.sourcePackage, msg.senderName)
                         if (targetMsg != null) {
-                            // Mark original message as deleted by sender, preserving the original captured text!
                             dao.markDeletedBySender(targetMsg.id, now)
                             _lastCapturedTime.value = now
                             DiagnosticTracker.recordInsertionSkipped(
                                 pkg,
                                 displayName,
-                                "Marked previous message as deleted by sender (original text preserved)"
+                                "Marked previous message as deleted by sender (original text & media preserved)"
                             )
                         } else {
-                            // If MsgVault was not running when the original arrived, save an audit record
                             dao.insertMessage(
                                 msg.copy(
                                     messageText = "Message was deleted by sender before MsgVault could capture it.",
@@ -226,8 +223,7 @@ class NotificationCaptureService : NotificationListenerService() {
                         continue
                     }
 
-                    // Precise duplicate detection:
-                    // 1. Check exact identical notification event from Android OS (prevents duplicate re-posts on screen on/volume change)
+                    // Precise duplicate detection
                     val exactDuplicate = dao.findExactNotificationDuplicate(
                         sourcePackage = msg.sourcePackage,
                         notificationKey = msg.notificationKey,
@@ -244,7 +240,7 @@ class NotificationCaptureService : NotificationListenerService() {
                         continue
                     }
 
-                    // 2. Check 300ms jitter window for identical text from the same sender
+                    // Jitter window for same sender within 300ms
                     val jitterDuplicate = dao.findRecentDuplicate(
                         sourcePackage = msg.sourcePackage,
                         senderName = msg.senderName,
@@ -261,11 +257,33 @@ class NotificationCaptureService : NotificationListenerService() {
                         continue
                     }
 
-                    val newId = dao.insertMessage(msg)
+                    // Link with media observer if this notification is a media message
+                    var linkedMsg = msg
+                    if (msg.messageType != "TEXT" || !msg.attachmentDescription.isNullOrBlank()) {
+                        val recentMedia = mediaDao.findRecentMediaForPackage(pkg, now - 60_000L)
+                        if (recentMedia != null) {
+                            linkedMsg = msg.copy(
+                                mediaFilePath = recentMedia.localFilePath,
+                                mediaMimeType = recentMedia.mimeType,
+                                mediaFileSize = recentMedia.fileSizeBytes
+                            )
+                            DiagnosticTracker.recordMediaSaved(pkg, displayName, recentMedia.mediaType)
+                        }
+                    }
+
+                    val newId = dao.insertMessage(linkedMsg)
                     if (newId > 0) {
                         _lastCapturedTime.value = now
                         _totalCapturedInSession.value += 1
                         DiagnosticTracker.recordInsertionSuccess(pkg, displayName, 1)
+
+                        // If media was linked, update media entity's linkedMessageId
+                        if (linkedMsg.mediaFilePath != null) {
+                            val media = mediaDao.findByLocalPath(linkedMsg.mediaFilePath)
+                            if (media != null) {
+                                mediaDao.linkToMessage(media.id, newId)
+                            }
+                        }
                     } else {
                         DiagnosticTracker.recordInsertionFailed(
                             pkg,
@@ -286,8 +304,7 @@ class NotificationCaptureService : NotificationListenerService() {
 
     override fun onNotificationRemoved(sbn: StatusBarNotification?) {
         super.onNotificationRemoved(sbn)
-        // MANDATE: The app must not delete stored messages when onNotificationRemoved() is called.
-        // Notification removal must never automatically remove the corresponding saved message.
+        // MANDATE: The app must not delete stored messages when notifications are dismissed.
     }
 
     override fun onDestroy() {

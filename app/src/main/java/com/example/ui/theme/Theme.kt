@@ -13,52 +13,52 @@ import androidx.compose.ui.platform.LocalContext
 
 private val DarkColorScheme = darkColorScheme(
     primary = IndigoLight,
-    onPrimary = Navy900,
-    primaryContainer = Navy700,
-    onPrimaryContainer = IndigoLight,
-    secondary = ElectricCyan,
-    onSecondary = Navy900,
-    secondaryContainer = Navy700,
-    onSecondaryContainer = ElectricCyan,
+    onPrimary = Color.White,
+    primaryContainer = IndigoDark,
+    onPrimaryContainer = Color(0xFFE0E7FF),
+    secondary = CyanAccent,
+    onSecondary = Color.Black,
+    secondaryContainer = Color(0xFF164E63),
+    onSecondaryContainer = Color(0xFFCFFAFE),
     tertiary = AmberFavorite,
-    onTertiary = Navy900,
-    background = DarkBackground,
-    onBackground = DarkOnSurface,
-    surface = DarkSurface,
-    onSurface = DarkOnSurface,
-    surfaceVariant = DarkSurfaceVariant,
-    onSurfaceVariant = DarkOnSurfaceVariant,
-    outline = DarkOutline,
-    error = RoseDestructive,
+    onTertiary = Color.Black,
+    background = SurfaceDark,
+    onBackground = TextPrimaryDark,
+    surface = SurfaceCardDark,
+    onSurface = TextPrimaryDark,
+    surfaceVariant = SurfaceVariantDark,
+    onSurfaceVariant = TextSecondaryDark,
+    outline = BorderDark,
+    error = CrimsonDeleted,
     onError = Color.White
 )
 
 private val LightColorScheme = lightColorScheme(
-    primary = IndigoDark,
+    primary = IndigoPrimary,
     onPrimary = Color.White,
-    primaryContainer = Color(0xFFDBEAFE),
-    onPrimaryContainer = Color(0xFF1E3A8A),
-    secondary = Color(0xFF0284C7),
+    primaryContainer = Color(0xFFEEF2FF),
+    onPrimaryContainer = IndigoDark,
+    secondary = Color(0xFF0891B2),
     onSecondary = Color.White,
     secondaryContainer = Color(0xFFE0F2FE),
     onSecondaryContainer = Color(0xFF0369A1),
     tertiary = AmberFavorite,
-    onTertiary = Color.White,
-    background = LightBackground,
-    onBackground = LightOnSurface,
-    surface = LightSurface,
-    onSurface = LightOnSurface,
-    surfaceVariant = LightSurfaceVariant,
-    onSurfaceVariant = LightOnSurfaceVariant,
-    outline = LightOutline,
-    error = RoseDestructive,
+    onTertiary = Color.Black,
+    background = SurfaceLight,
+    onBackground = TextPrimaryLight,
+    surface = SurfaceCardLight,
+    onSurface = TextPrimaryLight,
+    surfaceVariant = SurfaceVariantLight,
+    onSurfaceVariant = TextSecondaryLight,
+    outline = BorderLight,
+    error = CrimsonDeleted,
     onError = Color.White
 )
 
 @Composable
-fun MsgVaultTheme(
+fun MyApplicationTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
-    dynamicColor: Boolean = false, // Default to customized navy/indigo aesthetic
+    dynamicColor: Boolean = false, // Prefer tailored vault theme
     content: @Composable () -> Unit,
 ) {
     val colorScheme = when {
@@ -70,16 +70,5 @@ fun MsgVaultTheme(
         else -> LightColorScheme
     }
 
-    MaterialTheme(
-        colorScheme = colorScheme,
-        typography = Typography,
-        content = content
-    )
+    MaterialTheme(colorScheme = colorScheme, typography = Typography, content = content)
 }
-
-@Composable
-fun MyApplicationTheme(
-    darkTheme: Boolean = isSystemInDarkTheme(),
-    dynamicColor: Boolean = false,
-    content: @Composable () -> Unit
-) = MsgVaultTheme(darkTheme = darkTheme, dynamicColor = dynamicColor, content = content)

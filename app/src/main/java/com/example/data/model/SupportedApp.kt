@@ -1,7 +1,6 @@
 package com.example.data.model
 
 import android.content.Context
-import android.content.pm.PackageManager
 import androidx.compose.ui.graphics.Color
 
 data class SupportedApp(
@@ -46,10 +45,12 @@ object SupportedAppRegistry {
         SupportedApp("com.Slack", "Slack", 0xFF4A154B, "SL"),
         SupportedApp("com.kakao.talk", "KakaoTalk", 0xFFFFE812, "KT"),
         SupportedApp("ch.threema.app", "Threema", 0xFF202020, "TH"),
-        // Include self for diagnostics / test notification simulation
-        SupportedApp("com.aistudio.msgvault.nxvkqa", "MsgVault Test", 0xFF3B82F6, "MV"),
         SupportedApp("com.example", "MsgVault Test Demo", 0xFF3B82F6, "MV")
     )
+
+    fun getAppByPackage(packageName: String): SupportedApp? {
+        return ALL_SUPPORTED_APPS.find { it.packageName == packageName }
+    }
 
     fun getDisplayName(packageName: String, context: Context? = null, fallback: String = "Messaging App"): String {
         ALL_SUPPORTED_APPS.find { it.packageName == packageName }?.let { return it.displayName }
@@ -66,9 +67,8 @@ object SupportedAppRegistry {
     fun getBrandColor(packageName: String): Color {
         val known = ALL_SUPPORTED_APPS.find { it.packageName == packageName }
         if (known != null) return Color(known.brandColorHex)
-        // Dynamic deterministic color for generic messaging apps based on package hash
         val palette = listOf(
-            0xFF3B82F6, 0xFF10B981, 0xFF8B5CF6, 0xFFF59E0B, 
+            0xFF3B82F6, 0xFF10B981, 0xFF8B5CF6, 0xFFF59E0B,
             0xFFEF4444, 0xFFEC4899, 0xFF06B6D4, 0xFF14B8A6
         )
         val index = (packageName.hashCode() and 0x7FFFFFFF) % palette.size
@@ -88,7 +88,6 @@ object SupportedAppRegistry {
                 pm.getPackageInfo(app.packageName, 0)
                 true
             } catch (e: Exception) {
-                // If it's the app itself
                 app.packageName == context.packageName
             }
             app.copy(
